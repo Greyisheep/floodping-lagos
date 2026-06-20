@@ -67,7 +67,26 @@ gcloud run deploy floodping --source . --region us-central1 --allow-unauthentica
   [design challenge](DESIGN-CHALLENGE.md)).
 - Stateless sessions: add `--add-cloudsql-instances <PROJECT>:<REGION>:floodping-db` +
   `--set-secrets DATABASE_URL=floodping-dburl:latest` (URL `postgresql+asyncpg://…?host=/cloudsql/<icn>`).
-- Tear down: `gcloud run services delete floodping --region us-central1` (and `gcloud sql instances delete floodping-db`).
+
+## Tear down (stop all charges)
+Delete everything you stood up — Cloud SQL is the main ongoing cost:
+```bash
+PROJECT=deepstack-492609   # your project
+
+gcloud run services delete floodping --region us-central1 --project $PROJECT --quiet
+gcloud sql instances delete floodping-db --project $PROJECT --quiet            # only if you created Cloud SQL
+for s in floodping-gemini floodping-weather floodping-dburl; do
+  gcloud secrets delete "$s" --project $PROJECT --quiet
+done
+gcloud artifacts repositories delete cloud-run-source-deploy \
+  --location us-central1 --project $PROJECT --quiet                            # build images
+
+# verify nothing remains
+gcloud run services list --region us-central1 --project $PROJECT | grep floodping || echo "clean"
+gcloud sql instances list --project $PROJECT | grep floodping || echo "clean"
+```
+Enabled APIs are free at rest, so you can leave them. The GitHub repo is the lasting artifact — one
+`gcloud run deploy --source .` brings it all back.
 
 ## Scope
 One city (Lagos), chat + a browser UI, four jobs: check · predict · report · broadcast. Out of scope
