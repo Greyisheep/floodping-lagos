@@ -121,6 +121,10 @@ _UI = """<!doctype html>
   .me { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
   .bot { align-self:flex-start; background:var(--bot); border-bottom-left-radius:4px; }
   .bot.warn { background:#fce8e6; }
+  .bot p { margin:.35em 0; } .bot p:first-child { margin-top:0; } .bot p:last-child { margin-bottom:0; }
+  .bot ul, .bot ol { margin:.35em 0; padding-left:1.2em; } .bot li { margin:.15em 0; }
+  .bot strong { font-weight:600; } .bot em { font-style:italic; }
+  .bot code { background:#0000000d; padding:1px 5px; border-radius:5px; font-size:.92em; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 8px; }
   .chip { font-size:13px; padding:6px 10px; border:1px solid #d2d6db; border-radius:999px;
     background:#fff; cursor:pointer; } .chip:hover { border-color:var(--blue); color:var(--blue); }
@@ -144,10 +148,30 @@ _UI = """<!doctype html>
 <script>
   const log = document.getElementById('log'), inp = document.getElementById('m'), btn = document.getElementById('b');
   const sid = 'web-' + Math.random().toString(36).slice(2);
+  // Self-contained, XSS-safe markdown -> HTML (no CDN, no build step).
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl = s => esc(s)
+    .replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*])\\*([^*]+?)\\*/g,'$1<em>$2</em>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+  function md(text){
+    let out='', list=null;
+    for (const raw of text.split(/\\r?\\n/)) {
+      const line = raw.trim();
+      const b = line.match(/^[*\\-•]\\s+(.*)/), n = line.match(/^\\d+\\.\\s+(.*)/);
+      if (b || n) { const t = n?'ol':'ul';
+        if (list!==t){ if(list) out+='</'+list+'>'; out+='<'+t+'>'; list=t; }
+        out += '<li>'+inl((b||n)[1])+'</li>';
+      } else { if(list){ out+='</'+list+'>'; list=null; } if(line) out+='<p>'+inl(line)+'</p>'; }
+    }
+    if (list) out+='</'+list+'>';
+    return out;
+  }
   function add(text, who) {
     const d = document.createElement('div');
     d.className = 'msg ' + who + (who==='bot' && /unknown|do not assume/i.test(text) ? ' warn' : '');
-    d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
+    if (who==='bot' && text!=='…') d.innerHTML = md(text); else d.textContent = text;
+    log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
   }
   function ask(t){ inp.value = t; send(new Event('x')); }
   async function send(e){ e.preventDefault(); const text = inp.value.trim(); if(!text) return false;
