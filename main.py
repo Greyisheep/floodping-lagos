@@ -85,6 +85,15 @@ def _make_session_service():
 _session_service = _make_session_service()
 _runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=_session_service)
 
+# Token economics (CHECKLIST §13/§17): surface per-request tokens + a cost estimate.
+# Rates are env-overridable ($ per 1M tokens) — defaults are flash-tier estimates, not a quote.
+_PRICE_IN = float(os.environ.get("FLOODPING_PRICE_IN_PER_MTOK", "0.15"))
+_PRICE_OUT = float(os.environ.get("FLOODPING_PRICE_OUT_PER_MTOK", "0.60"))
+
+
+def _estimate_cost(prompt_tok: int, output_tok: int) -> float:
+    return prompt_tok / 1e6 * _PRICE_IN + output_tok / 1e6 * _PRICE_OUT
+
 app = FastAPI(title="FloodPing Lagos", version="0.2.0")
 
 
@@ -114,10 +123,17 @@ async def chat(body: ChatIn) -> dict:
 
     final_text = None
     card = None
+    usage = {"prompt": 0, "output": 0, "thoughts": 0, "total": 0}
     try:
         async for event in _runner.run_async(
             user_id=body.user_id, session_id=body.session_id, new_message=new_message
         ):
+            um = getattr(event, "usage_metadata", None)
+            if um:
+                usage["prompt"] += um.prompt_token_count or 0
+                usage["output"] += um.candidates_token_count or 0
+                usage["thoughts"] += getattr(um, "thoughts_token_count", 0) or 0
+                usage["total"] += um.total_token_count or 0
             if event.content and event.content.parts:
                 for p in event.content.parts:
                     fr = getattr(p, "function_response", None)
@@ -146,7 +162,8 @@ async def chat(body: ChatIn) -> dict:
             'Sorry, I didn\'t quite get that. Try "is <street> flooded?", a route like '
             '"from Yaba to Lekki", "where is flooded in Lagos?", or report flooding at a street.'
         )
-    return {"response": final_text, "card": card}
+    usage["est_cost_usd"] = round(_estimate_cost(usage["prompt"], usage["output"] + usage["thoughts"]), 6)
+    return {"response": final_text, "card": card, "usage": usage}
 
 
 @app.get("/events")
@@ -197,6 +214,7 @@ _UI = """<!doctype html>
   .card { background:#fff; border-radius:10px; padding:8px 11px; margin-bottom:8px; box-shadow:0 1px 3px #0000001f; }
   .card .cv { font-weight:700; font-size:14px; letter-spacing:.02em; }
   .card .cm { color:#5f6368; font-size:12.5px; margin-top:3px; }
+  .usage { font-size:11px; color:#9aa0a6; margin-top:5px; }
   .toasts { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50;
     display:flex; flex-direction:column; gap:8px; width:92%; max-width:420px; }
   .toast { background:#202124; color:#fff; border-radius:10px; padding:10px 13px; font-size:13.5px;
@@ -275,6 +293,12 @@ _UI = """<!doctype html>
       const d = document.createElement('div');
       d.className = 'msg bot' + (/unknown|do not assume/i.test(resp) ? ' warn' : '');
       d.innerHTML = card(j.card) + md(resp);
+      if (j.usage && j.usage.total) {
+        const u = document.createElement('div'); u.className='usage';
+        u.textContent = '🪙 '+j.usage.total.toLocaleString()+' tokens'
+          + (j.usage.est_cost_usd ? (' · ~$'+j.usage.est_cost_usd.toFixed(5)) : '');
+        d.appendChild(u);
+      }
       log.appendChild(d); log.scrollTop = log.scrollHeight;
     } catch(err){ wait.remove(); add('Network error — try again.','bot'); }
     btn.disabled=false; inp.focus(); return false;
