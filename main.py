@@ -86,18 +86,33 @@ async def chat(body: ChatIn) -> dict:
     new_message = types.Content(role="user", parts=[types.Part(text=body.message)])
 
     final_text = None
+    card = None
     try:
         async for event in _runner.run_async(
             user_id=body.user_id, session_id=body.session_id, new_message=new_message
         ):
+            if event.content and event.content.parts:
+                for p in event.content.parts:
+                    fr = getattr(p, "function_response", None)
+                    if fr is not None and getattr(fr, "name", "") == "get_flood_status":
+                        resp = getattr(fr, "response", None)
+                        src = resp.get("result") if isinstance(resp, dict) and "result" in resp else resp
+                        if isinstance(src, dict) and "verdict" in src:
+                            card = {
+                                "verdict": src.get("verdict"),
+                                "location": src.get("location"),
+                                "age_min": src.get("newest_report_age_minutes"),
+                                "rain_mm": src.get("rain_mm"),
+                                "is_raining": src.get("is_raining"),
+                            }
             if event.is_final_response() and event.content and event.content.parts:
                 final_text = "".join(
                     p.text for p in event.content.parts if getattr(p, "text", None)
                 ).strip()
     except ServerError:
-        return {"response": "The model is busy right now — please try again in a few seconds."}
+        return {"response": "The model is busy right now — please try again in a few seconds.", "card": None}
 
-    return {"response": final_text or "(no text response)"}
+    return {"response": final_text or "(no text response)", "card": card}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -125,6 +140,9 @@ _UI = """<!doctype html>
   .bot ul, .bot ol { margin:.35em 0; padding-left:1.2em; } .bot li { margin:.15em 0; }
   .bot strong { font-weight:600; } .bot em { font-style:italic; }
   .bot code { background:#0000000d; padding:1px 5px; border-radius:5px; font-size:.92em; }
+  .card { background:#fff; border-radius:10px; padding:8px 11px; margin-bottom:8px; box-shadow:0 1px 3px #0000001f; }
+  .card .cv { font-weight:700; font-size:14px; letter-spacing:.02em; }
+  .card .cm { color:#5f6368; font-size:12.5px; margin-top:3px; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 8px; }
   .chip { font-size:13px; padding:6px 10px; border:1px solid #d2d6db; border-radius:999px;
     background:#fff; cursor:pointer; } .chip:hover { border-color:var(--blue); color:var(--blue); }
@@ -173,13 +191,29 @@ _UI = """<!doctype html>
     if (who==='bot' && text!=='…') d.innerHTML = md(text); else d.textContent = text;
     log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
   }
+  const VCOLORS = { passable:['🟢','#1e8e3e'], caution:['🟠','#e8710a'], blocked:['🔴','#d93025'], unknown:['⚪','#5f6368'] };
+  function card(c) {
+    if (!c || !c.verdict) return '';
+    const [icon, col] = VCOLORS[c.verdict] || VCOLORS.unknown;
+    const age = (c.age_min!=null) ? (c.age_min + ' min ago') : 'no reports';
+    const rain = c.is_raining ? ('🌧️ raining' + (c.rain_mm!=null ? ' ('+c.rain_mm+' mm)' : '')) : '☀️ no rain';
+    const loc = c.location ? esc(c.location) : '';
+    return '<div class="card" style="border-left:4px solid '+col+'">'
+      + '<div class="cv" style="color:'+col+'">'+icon+' '+esc(c.verdict.toUpperCase())+'</div>'
+      + '<div class="cm">'+loc+' · '+age+' · '+rain+'</div></div>';
+  }
   function ask(t){ inp.value = t; send(new Event('x')); }
   async function send(e){ e.preventDefault(); const text = inp.value.trim(); if(!text) return false;
     add(text,'me'); inp.value=''; btn.disabled=true; const wait = add('…','bot');
     try {
       const r = await fetch('/chat',{method:'POST',headers:{'content-type':'application/json'},
         body: JSON.stringify({message:text, session_id:sid})});
-      const j = await r.json(); wait.remove(); add(j.response || '(no response)','bot');
+      const j = await r.json(); wait.remove();
+      const resp = j.response || '(no response)';
+      const d = document.createElement('div');
+      d.className = 'msg bot' + (/unknown|do not assume/i.test(resp) ? ' warn' : '');
+      d.innerHTML = card(j.card) + md(resp);
+      log.appendChild(d); log.scrollTop = log.scrollHeight;
     } catch(err){ wait.remove(); add('Network error — try again.','bot'); }
     btn.disabled=false; inp.focus(); return false;
   }
