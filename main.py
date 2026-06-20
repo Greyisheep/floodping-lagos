@@ -10,11 +10,15 @@ Session backend is swappable (CHECKLIST §7): set DATABASE_URL to go stateless
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
+
+from floodping import notifications
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -140,6 +144,26 @@ async def chat(body: ChatIn) -> dict:
     return {"response": final_text or "(no text response)", "card": card}
 
 
+@app.get("/events")
+async def events() -> StreamingResponse:
+    """Server-Sent Events: every connected client gets report popups in real time."""
+    q = notifications.subscribe()
+
+    async def gen():
+        try:
+            yield ": connected\n\n"
+            while True:
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=20)
+                    yield f"data: {json.dumps(ev)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            notifications.unsubscribe(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @app.get("/", response_class=HTMLResponse)
 def home() -> str:
     return _UI
@@ -168,6 +192,10 @@ _UI = """<!doctype html>
   .card { background:#fff; border-radius:10px; padding:8px 11px; margin-bottom:8px; box-shadow:0 1px 3px #0000001f; }
   .card .cv { font-weight:700; font-size:14px; letter-spacing:.02em; }
   .card .cm { color:#5f6368; font-size:12.5px; margin-top:3px; }
+  .toasts { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50;
+    display:flex; flex-direction:column; gap:8px; width:92%; max-width:420px; }
+  .toast { background:#202124; color:#fff; border-radius:10px; padding:10px 13px; font-size:13.5px;
+    box-shadow:0 4px 14px #00000040; transition:opacity .4s; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 8px; }
   .chip { font-size:13px; padding:6px 10px; border:1px solid #d2d6db; border-radius:999px;
     background:#fff; cursor:pointer; } .chip:hover { border-color:var(--blue); color:var(--blue); }
@@ -175,7 +203,7 @@ _UI = """<!doctype html>
   input { flex:1; padding:11px 13px; border:1px solid #d2d6db; border-radius:999px; font-size:15px; }
   button { padding:11px 18px; border:0; border-radius:999px; background:var(--blue); color:#fff;
     font-size:15px; cursor:pointer; } button:disabled { opacity:.5; }
-</style></head><body><div class="wrap">
+</style></head><body><div class="toasts" id="toasts"></div><div class="wrap">
   <header><h1>🌧️ FloodPing Lagos</h1><p>Ask if a route is flooded — or report flooding. Demo on Google ADK 2.2.</p></header>
   <div id="log"></div>
   <div class="chips">
@@ -246,4 +274,17 @@ _UI = """<!doctype html>
     } catch(err){ wait.remove(); add('Network error — try again.','bot'); }
     btn.disabled=false; inp.focus(); return false;
   }
+  // Live report notifications — everyone on the page sees every report.
+  const toasts = document.getElementById('toasts');
+  const POSS = { high:'🔴 high', medium:'🟠 medium', low:'🟢 low' };
+  function toast(ev){
+    if(!ev || ev.type!=='report') return;
+    const t = document.createElement('div'); t.className='toast';
+    t.innerHTML = '🚨 <b>Flood reported</b> — '+esc(ev.location||'somewhere')+' · '+esc(ev.severity||'')
+      + '<br><span style="opacity:.85">possibility: '+(POSS[ev.possibility]||esc(ev.possibility||'?'))+'</span>';
+    toasts.appendChild(t);
+    setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 7000);
+  }
+  try { const es = new EventSource('/events');
+    es.onmessage = (e)=>{ try { toast(JSON.parse(e.data)); } catch(_){} }; } catch(_){}
 </script></body></html>"""

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from google.adk.tools import ToolContext
 
-from floodping import data
+from floodping import data, notifications
 from floodping.weather import FORECAST_THRESHOLD_MM, effective_ttl_minutes, get_rain_signal
 
 # Code-computed authoritative verdict (issue #4). The guard checks THIS field, not the
@@ -93,18 +93,24 @@ def get_flood_status(location: str, tool_context: ToolContext) -> dict:
 
 
 def submit_report(location: str, severity: str, tool_context: ToolContext) -> dict:
-    """Write: record a citizen flood report.
+    """Write + broadcast a citizen flood report.
 
-    `severity` must be one of: passable, ankle-level, car-risk, road-blocked.
-    Invalid severities are rejected (CHECKLIST §4 — validate writes).
+    Reports are NEVER blocked. Vetting only annotates a `possibility` level (low/medium/high)
+    from the weather/forecast — a low-possibility report is still recorded and still broadcast
+    to everyone on the page, just labelled low. An unclear severity is coerced, not rejected.
     """
     sev = (severity or "").strip().lower()
     if sev not in data.SEVERITY_LEVELS:
-        return {
-            "ok": False,
-            "error": f"invalid severity '{severity}'",
-            "allowed": list(data.SEVERITY_LEVELS),
-        }
+        sev = "car-risk"  # coerce rather than reject — never block a citizen report
     report = data.add_report(location, sev)
+
+    # Vetting (plausibility), NOT a gate: does current/forecast weather support this report?
+    w = get_rain_signal(location)
+    prediction = _flood_prediction(w["rain_mm"], w["forecast_6h_mm"], data.is_flood_prone(location))
+    possibility = {"likely": "high", "possible": "medium", "unlikely": "low"}[prediction]
+
+    notifications.broadcast(
+        {"type": "report", "location": location, "severity": sev, "possibility": possibility}
+    )
     tool_context.state["temp:last_report_location"] = location
-    return {"ok": True, "location": location, "recorded": report}
+    return {"ok": True, "location": location, "recorded": report, "possibility": possibility}
