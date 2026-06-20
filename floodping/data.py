@@ -109,3 +109,20 @@ def add_report(location: str, severity: str) -> dict:
     report = {"severity": severity, "minutes_ago": 0, "source": "citizen"}
     _REPORTS.setdefault(normalize_location(location), []).insert(0, report)
     return report
+
+
+def reported_areas() -> list[dict]:
+    """Every area with a citizen report (newest per area) — for the city-wide overview."""
+    out = []
+    for key, reps in _REPORTS.items():
+        if not reps:
+            continue
+        newest = min(reps, key=lambda r: r["minutes_ago"])
+        out.append({"area": key, "severity": newest["severity"], "minutes_ago": newest["minutes_ago"]})
+    return out
+
+
+# Readable watch-list of major flood-prone Lagos areas (for the overview when risk is elevated).
+MAJOR_FLOOD_AREAS = (
+    "Lekki", "Ajah", "Victoria Island", "Ikorodu Road", "Surulere", "Ikeja", "Yaba", "Apapa",
+)

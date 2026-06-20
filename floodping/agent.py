@@ -20,7 +20,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 
 from floodping.guardrails import flood_router_guard, freshness_guard
-from floodping.tools import get_flood_status, submit_report
+from floodping.tools import check_route, get_flood_status, lagos_flood_overview, submit_report
 
 # gemini-3.5-flash (GA). Env-overridable so we can A/B against 2.5-flash live.
 # Gemini 3.x notes (from Dockie's migration checklist):
@@ -34,24 +34,26 @@ MODEL = os.environ.get("FLOODPING_MODEL", "gemini-3.5-flash")
 check_agent = LlmAgent(
     model=MODEL,
     name="CheckAgent",
-    description="Tells a user whether a Lagos street/route is flooded right now.",
+    description="Tells a user whether a Lagos place, route, or the whole city is flooded.",
     instruction=(
-        "You tell a Lagos resident whether a route is flooded, in a warm, natural, concise tone "
-        "(a few sentences, not a form).\n"
-        "1. Extract and normalize the location (e.g. 'chevron roundabout side after orchid' -> "
-        "'Orchid Road, Lekki').\n"
-        "2. Call get_flood_status.\n"
-        "3. Keep two things clearly SEPARATE:\n"
-        "   - REPORTS (ground truth): what citizens actually reported (report_status) and how long "
-        "ago. Lead with this when there is a fresh report.\n"
-        "   - PREDICTION (forecast-based): flash_flood_prediction from current/forecast rain. Say "
-        "explicitly it is a prediction/forecast, NOT a confirmed report.\n"
-        "If there are no citizen reports, say so plainly and give the prediction as a forecast "
-        "estimate. Mention rain only when it is raining or rain is expected. Include the `advisory` "
-        "ONLY when the tool returns one (do not repeat a warning every time). Never say a road is "
-        "passable unless a fresh citizen report says so."
+        "You help Lagos residents with flooding, in a warm, natural, concise tone (a few sentences, "
+        "not a form). First, normalize messy location text (e.g. 'chevron roundabout side after "
+        "orchid' -> 'Orchid Road, Lekki'). Then pick the RIGHT tool:\n"
+        "- A single place ('is Orchid Road flooded?') -> get_flood_status.\n"
+        "- A journey ('from Yaba to Lekki', 'can I get to VGC from Ikeja?') -> check_route.\n"
+        "- A city-wide question ('where is flooded in Lagos?', 'which areas are at risk?') -> "
+        "lagos_flood_overview.\n"
+        "Always keep two things SEPARATE: citizen REPORTS (ground truth — report_status / points / "
+        "reported_flooding) and forecast PREDICTIONS (flash_flood_prediction / citywide risk — say "
+        "explicitly these are forecasts, NOT confirmed reports). Mention rain only when relevant. "
+        "Include any `advisory` only when the tool returns one. Never say a road is passable unless a "
+        "fresh citizen report says so. Always end with a short, helpful reply."
     ),
-    tools=[FunctionTool(func=get_flood_status)],
+    tools=[
+        FunctionTool(func=get_flood_status),
+        FunctionTool(func=check_route),
+        FunctionTool(func=lagos_flood_overview),
+    ],
     after_model_callback=freshness_guard,
 )
 

@@ -63,6 +63,7 @@ def get_flood_status(location: str, tool_context: ToolContext) -> dict:
     at_risk = prediction in ("likely", "possible") or w["is_raining"] or w["rain_expected"]
     advisory = data.OFFICIAL_WARNING if at_risk else None
 
+    tool_context.state["temp:flood_guard_active"] = True  # guard governs single-location checks only
     tool_context.state["temp:flood_location"] = location
     tool_context.state["temp:flood_newest_age_min"] = newest_age
     tool_context.state["temp:flood_has_fresh"] = is_fresh
@@ -89,6 +90,65 @@ def get_flood_status(location: str, tool_context: ToolContext) -> dict:
         "flood_prone_area": prone,
         # surfaced ONLY when there is real risk (keeps replies natural)
         "advisory": advisory,
+    }
+
+
+def lagos_flood_overview(tool_context: ToolContext) -> dict:
+    """City-wide snapshot for 'where is flooded in Lagos?' style questions.
+
+    Returns where flooding is currently REPORTED (ground truth) and the city-wide flash-flood
+    PREDICTION (forecast-based). One weather call approximates Lagos-wide conditions.
+    """
+    reported = [r for r in data.reported_areas() if r["severity"] != "passable"]
+    w = get_rain_signal("Lagos")
+    citywide = _flood_prediction(w["rain_mm"], w["forecast_6h_mm"], prone=True)
+    watch = list(data.MAJOR_FLOOD_AREAS) if citywide in ("likely", "possible") else []
+    return {
+        "reported_flooding": reported,                 # REPORTS (ground truth)
+        "citywide_flash_flood_risk": citywide,         # PREDICTION (forecast-based)
+        "watch_areas_if_raining": watch,
+        "is_raining": w["is_raining"],
+        "note": "Predictions are forecast estimates, not confirmed reports.",
+    }
+
+
+def check_route(origin: str, destination: str, tool_context: ToolContext) -> dict:
+    """Check a journey from origin to destination.
+
+    Checks the endpoints (citizen reports) + the flash-flood prediction along the way. A real
+    version would sample every segment via a directions API; this checks the two ends + risk.
+    """
+    points = []
+    for label, loc in (("origin", origin), ("destination", destination)):
+        reports = data.get_reports(loc)
+        newest = min(reports, key=lambda r: r["minutes_ago"]) if reports else None
+        status = _SEV_TO_VERDICT.get(newest["severity"], "unknown") if newest else "unknown"
+        points.append(
+            {
+                "point": label,
+                "location": loc,
+                "status": status,
+                "age_min": newest["minutes_ago"] if newest else None,
+            }
+        )
+    w = get_rain_signal(origin)
+    prone = data.is_flood_prone(origin) or data.is_flood_prone(destination)
+    prediction = _flood_prediction(w["rain_mm"], w["forecast_6h_mm"], prone)
+    if any(p["status"] == "blocked" for p in points):
+        overall = "blocked"
+    elif any(p["status"] == "caution" for p in points) or prediction in ("likely", "possible"):
+        overall = "caution"
+    elif all(p["status"] == "passable" for p in points):
+        overall = "passable"
+    else:
+        overall = "unknown"
+    return {
+        "origin": origin,
+        "destination": destination,
+        "points": points,                       # REPORTS at each end
+        "flash_flood_prediction": prediction,   # PREDICTION
+        "overall": overall,
+        "note": "Checks the endpoints + risk; full routing would sample every segment via a directions API.",
     }
 
 

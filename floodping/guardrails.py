@@ -54,6 +54,18 @@ CHECK_SIGNALS = (
     "is the road",
     "how is",
     "how's",
+    # route (origin -> destination) and city-wide overview
+    "where",
+    "which area",
+    "overview",
+    "hotspot",
+    "from ",
+    "get to",
+    "drive to",
+    "across lagos",
+    "in lagos",
+    "all of lagos",
+    "entire lagos",
 )
 
 
@@ -156,6 +168,8 @@ def freshness_guard(callback_context: Any, llm_response: Any) -> Optional[Any]:
     """
     try:
         state = callback_context.state
+        if not state.get("temp:flood_guard_active"):
+            return None  # governs single-location checks only — not route / city-wide overview
         verdict = state.get("temp:flood_verdict", "unknown")
         text = _extract_text(llm_response)
         if not text or not should_block_passable(text, verdict):

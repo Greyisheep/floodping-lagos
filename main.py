@@ -141,7 +141,12 @@ async def chat(body: ChatIn) -> dict:
     except ServerError:
         return {"response": "The model is busy right now — please try again in a few seconds.", "card": None}
 
-    return {"response": final_text or "(no text response)", "card": card}
+    if not final_text:
+        final_text = (
+            'Sorry, I didn\'t quite get that. Try "is <street> flooded?", a route like '
+            '"from Yaba to Lekki", "where is flooded in Lagos?", or report flooding at a street.'
+        )
+    return {"response": final_text, "card": card}
 
 
 @app.get("/events")
