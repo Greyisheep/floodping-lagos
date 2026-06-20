@@ -14,15 +14,21 @@ safety verdict are deterministic code.
 """
 from __future__ import annotations
 
+import os
+
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 
 from floodping.guardrails import flood_router_guard, freshness_guard
 from floodping.tools import get_flood_status, submit_report
 
-# gemini-2.5-flash: stable, cheap, consistent latency — same rationale as Dockie's
-# orchestrator (production rate limits, no preview deprecations, temperature flexibility).
-MODEL = "gemini-2.5-flash"
+# gemini-3.5-flash (GA). Env-overridable so we can A/B against 2.5-flash live.
+# Gemini 3.x notes (from Dockie's migration checklist):
+#   - mandates temperature=1.0 (we set no temperature override -> fine)
+#   - thought signatures on function-calling turns -> handled by google-adk 2.2
+#   - tool params must have NO defaults (ours have none)
+#   - catch google.genai.errors.ServerError for resilience (ADK catches ClientError)
+MODEL = os.environ.get("FLOODPING_MODEL", "gemini-3.5-flash")
 
 
 check_agent = LlmAgent(
