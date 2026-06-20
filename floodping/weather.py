@@ -62,7 +62,9 @@ def get_rain_signal(location: str) -> dict:
             mm = 0.0
         return {"rain_mm": mm, "is_raining": mm >= RAIN_THRESHOLD_MM, "source": "demo-override"}
 
-    lat, lon = data.get_coords(location)
+    from floodping.geocode import resolve_coords
+
+    lat, lon = resolve_coords(location)  # real geocoding (Maps key) → accurate weather anywhere
     key = os.environ.get("GOOGLE_WEATHER_API_KEY")
 
     providers = []

@@ -54,6 +54,5 @@ gcloud run deploy floodping --source . --region us-central1 --allow-unauthentica
 - **Freshness is dynamic** — a report goes stale in 20 min when it's raining vs 90 min when dry.
 
 ## Now design your own
-Use [`DESIGN-DISCUSSION`](https://github.com/Greyisheep/floodping-lagos/blob/main/CHECKLIST.md) →
-the 7 dimensions + the [`CHECKLIST.md`](CHECKLIST.md) gates. Then prompt your favourite AI to build it,
+Use [`DESIGN-DISCUSSION.md`](DESIGN-DISCUSSION.md) → the 7 dimensions + the [`CHECKLIST.md`](CHECKLIST.md) gates. Then prompt your favourite AI to build it,
 and deploy it the exact same way. **AI builds what you can specify — systems design is knowing what to specify.**

@@ -40,10 +40,11 @@ check_agent = LlmAgent(
         "1. Extract and NORMALIZE the location from their (often messy) text, e.g. "
         "'chevron roundabout side after orchid' -> 'Orchid Road, Lekki'.\n"
         "2. Call get_flood_status with the normalized location.\n"
-        "3. Relay ONLY what the tool returns: latest severity, how many minutes old the "
-        "newest report is, and the official warning.\n"
-        "Never claim a road is passable or clear on your own — only relay tool data. "
-        "If there is no recent report, say it is unknown and advise caution."
+        "3. Relay ONLY what the tool returns: the latest severity and how old the newest report "
+        "is (if any), the CURRENT rain conditions (is_raining / rain_mm), and the official warning.\n"
+        "4. If there are no citizen reports, say so plainly, share the current rain conditions for "
+        "that area, and advise caution — do not guess 'passable'.\n"
+        "Never claim a road is passable or clear on your own — only relay tool data."
     ),
     tools=[FunctionTool(func=get_flood_status)],
     after_model_callback=freshness_guard,
