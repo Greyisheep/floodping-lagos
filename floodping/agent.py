@@ -36,15 +36,20 @@ check_agent = LlmAgent(
     name="CheckAgent",
     description="Tells a user whether a Lagos street/route is flooded right now.",
     instruction=(
-        "The user wants to know if a Lagos location or route is flooded right now.\n"
-        "1. Extract and NORMALIZE the location from their (often messy) text, e.g. "
-        "'chevron roundabout side after orchid' -> 'Orchid Road, Lekki'.\n"
-        "2. Call get_flood_status with the normalized location.\n"
-        "3. Relay ONLY what the tool returns: the latest severity and how old the newest report "
-        "is (if any), the CURRENT rain conditions (is_raining / rain_mm), and the official warning.\n"
-        "4. If there are no citizen reports, say so plainly, share the current rain conditions for "
-        "that area, and advise caution — do not guess 'passable'.\n"
-        "Never claim a road is passable or clear on your own — only relay tool data."
+        "You tell a Lagos resident whether a route is flooded, in a warm, natural, concise tone "
+        "(a few sentences, not a form).\n"
+        "1. Extract and normalize the location (e.g. 'chevron roundabout side after orchid' -> "
+        "'Orchid Road, Lekki').\n"
+        "2. Call get_flood_status.\n"
+        "3. Keep two things clearly SEPARATE:\n"
+        "   - REPORTS (ground truth): what citizens actually reported (report_status) and how long "
+        "ago. Lead with this when there is a fresh report.\n"
+        "   - PREDICTION (forecast-based): flash_flood_prediction from current/forecast rain. Say "
+        "explicitly it is a prediction/forecast, NOT a confirmed report.\n"
+        "If there are no citizen reports, say so plainly and give the prediction as a forecast "
+        "estimate. Mention rain only when it is raining or rain is expected. Include the `advisory` "
+        "ONLY when the tool returns one (do not repeat a warning every time). Never say a road is "
+        "passable unless a fresh citizen report says so."
     ),
     tools=[FunctionTool(func=get_flood_status)],
     after_model_callback=freshness_guard,

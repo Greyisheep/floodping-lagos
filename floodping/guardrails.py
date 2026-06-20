@@ -163,15 +163,26 @@ def freshness_guard(callback_context: Any, llm_response: Any) -> Optional[Any]:
 
         location = state.get("temp:flood_location") or "that route"
         age = state.get("temp:flood_newest_age_min")
-        age_str = f"the newest report is {age} min old" if age is not None else "there are no reports"
         raining = bool(state.get("temp:flood_is_raining"))
-        rain_note = "it's raining and " if raining else ""
-        from floodping import data
+        pred = state.get("temp:flood_prediction", "unlikely")
 
-        safe = (
-            f"⚠️ Unknown for {location} — {rain_note}{age_str}, so I can't confirm it's passable. "
-            f"Do not assume it's clear. {data.OFFICIAL_WARNING}"
-        )
+        if age is not None:
+            safe = (
+                f"I don't have a recent enough report for {location} (the latest is {age} min old), "
+                "so I can't confirm it's passable."
+            )
+        else:
+            safe = f"I don't have any citizen reports for {location} yet, so I can't confirm it's passable."
+
+        if pred == "likely":
+            safe += (
+                " Going by the rain, flash flooding actually looks likely there right now — that's a "
+                "forecast, not a confirmed report, but I'd avoid it."
+            )
+        elif pred == "possible":
+            safe += " Flooding is possible given the rain (a forecast estimate), so please take care."
+        elif raining:
+            safe += " It's raining there, so be careful."
         return _text_response(safe)
     except Exception:  # never fail the turn because a guard failed (CHECKLIST §6)
         return None

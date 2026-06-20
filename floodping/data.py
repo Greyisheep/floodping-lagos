@@ -15,11 +15,25 @@ SEVERITY_LEVELS = ("passable", "ankle-level", "car-risk", "road-blocked")
 # computed from the rain signal (see floodping/weather.py: effective_ttl_minutes).
 FRESHNESS_TTL_MINUTES = 45
 
-# Official, citable warning (NiMet, June 2026). Always shown alongside citizen data.
+# Official, citable warning (NiMet, June 2026) — surfaced ONLY when there is real risk
+# (rain now / rain expected / a flood prediction), not on every message.
 OFFICIAL_WARNING = (
     "NiMet (June 2026): Lagos is among 19 states flagged for flash-flood risk; "
     "motorists are advised not to drive through flooded roads."
 )
+
+# Lagos areas with a known history of flash flooding (from the 2026 NEMA/NiHSA outlook).
+# Used to weight the flash-flood PREDICTION.
+FLOOD_PRONE_AREAS = (
+    "lekki", "ajah", "ikorodu", "victoria island", " vi", "ikoyi", "surulere", "ikeja",
+    "alimosho", "isheri", "badagry", "epe", "yaba", "lagos island", "apapa", "oshodi",
+    "mile 12", "ketu", "ozumba", "admiralty", "orchid", "chevron", "oworonshoki",
+)
+
+
+def is_flood_prone(location: str) -> bool:
+    n = " " + normalize_location(location)
+    return any(area in n for area in FLOOD_PRONE_AREAS)
 
 # Seed reports keyed by normalized location.
 #   - "orchid road, lekki":      FRESH passable (8m)

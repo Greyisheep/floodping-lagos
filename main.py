@@ -120,13 +120,15 @@ async def chat(body: ChatIn) -> dict:
                     if fr is not None and getattr(fr, "name", "") == "get_flood_status":
                         resp = getattr(fr, "response", None)
                         src = resp.get("result") if isinstance(resp, dict) and "result" in resp else resp
-                        if isinstance(src, dict) and "verdict" in src:
+                        if isinstance(src, dict) and "report_status" in src:
                             card = {
-                                "verdict": src.get("verdict"),
+                                "verdict": src.get("report_status"),
                                 "location": src.get("location"),
                                 "age_min": src.get("newest_report_age_minutes"),
-                                "rain_mm": src.get("rain_mm"),
+                                "rain_mm": src.get("current_rain_mm"),
                                 "is_raining": src.get("is_raining"),
+                                "prediction": src.get("flash_flood_prediction"),
+                                "rain_expected": src.get("rain_expected"),
                             }
             if event.is_final_response() and event.content and event.content.parts:
                 final_text = "".join(
@@ -215,15 +217,19 @@ _UI = """<!doctype html>
     log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
   }
   const VCOLORS = { passable:['🟢','#1e8e3e'], caution:['🟠','#e8710a'], blocked:['🔴','#d93025'], unknown:['⚪','#5f6368'] };
+  const PRED = { likely:'⛈ likely', possible:'🌧 possible', unlikely:'🌤 unlikely' };
   function card(c) {
     if (!c || !c.verdict) return '';
     const [icon, col] = VCOLORS[c.verdict] || VCOLORS.unknown;
-    const age = (c.age_min!=null) ? (c.age_min + ' min ago') : 'no reports';
-    const rain = c.is_raining ? ('🌧️ raining' + (c.rain_mm!=null ? ' ('+c.rain_mm+' mm)' : '')) : '☀️ no rain';
+    const age = (c.age_min!=null) ? (c.age_min + ' min ago') : 'no citizen reports';
+    const rain = c.is_raining ? ('🌧️ raining' + (c.rain_mm!=null ? ' ('+c.rain_mm+' mm)' : '')) : '☀️ no rain now';
     const loc = c.location ? esc(c.location) : '';
+    const pred = c.prediction ? ('<div class="cm">flash-flood forecast: <b>'+esc(PRED[c.prediction]||c.prediction)
+      +'</b> · <i>prediction, not a report</i></div>') : '';
     return '<div class="card" style="border-left:4px solid '+col+'">'
-      + '<div class="cv" style="color:'+col+'">'+icon+' '+esc(c.verdict.toUpperCase())+'</div>'
-      + '<div class="cm">'+loc+' · '+age+' · '+rain+'</div></div>';
+      + '<div class="cv" style="color:'+col+'">'+icon+' '+esc(c.verdict.toUpperCase())
+      + ' <span style="font-weight:400;color:#5f6368;font-size:12px">(citizen report)</span></div>'
+      + '<div class="cm">'+loc+' · '+age+' · '+rain+'</div>' + pred + '</div>';
   }
   function ask(t){ inp.value = t; send(new Event('x')); }
   async function send(e){ e.preventDefault(); const text = inp.value.trim(); if(!text) return false;
