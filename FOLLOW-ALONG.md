@@ -9,9 +9,10 @@
 ### **https://floodping-130785602363.us-central1.run.app**
 
 Type any of these:
-- `Is Orchid Road flooded?`
-- `Can I pass Ikorodu Road?`   ← watch it refuse to guess
-- `Report flooding at Admiralty Road, car-risk`
+- `Is Orchid Road flooded?`               — a citizen report + a forecast prediction (kept separate)
+- `Can I pass Ikorodu Road?`              — watch it refuse to guess on a stale report
+- `where is flooded in Lagos?`   ·   `Can I get from Yaba to Lekki?`   — city-wide + a route
+- `Report flooding at Admiralty Road, road-blocked`   — have a friend on the page report it: **everyone gets a popup** 🚨
 
 ---
 
@@ -49,10 +50,12 @@ gcloud run deploy floodping --source . --region us-central1 --allow-unauthentica
 
 ## What to notice (the whole point) 👀
 - **Routing is code, not an LLM call** — a `before_model_callback` picks check-vs-report.
-- **Safety is code, not the prompt** — the guard refuses to say "passable" without a *fresh* report.
+- **Safety is code, not the prompt** — the guard refuses "passable" without a *fresh* report.
+- **Report ≠ prediction** — a citizen *report* (ground truth) and a *forecast* prediction are never blurred.
 - **The LLM does one fuzzy job** — turning *"chevron roundabout side after orchid"* into a real location.
-- **Freshness is dynamic** — a report goes stale in 20 min when it's raining vs 90 min when dry.
+- **Freshness is dynamic** — a report goes stale in 20 min raining vs 90 min dry.
+- **Report once, everyone sees it** — reports broadcast to all clients, vetted but **never blocked**.
 
 ## Now design your own
-Use [`DESIGN-DISCUSSION.md`](DESIGN-DISCUSSION.md) → the 7 dimensions + the [`CHECKLIST.md`](CHECKLIST.md) gates. Then prompt your favourite AI to build it,
-and deploy it the exact same way. **AI builds what you can specify — systems design is knowing what to specify.**
+Use [`DESIGN-CHALLENGE.md`](DESIGN-CHALLENGE.md) (the brief) + the [`CHECKLIST.md`](CHECKLIST.md) gates. Then prompt your favourite AI to build it,
+and deploy it the same way. **AI builds what you can specify — systems design is knowing what to specify.**
