@@ -14,8 +14,11 @@ matters for correctness is **code**:
 
 - **Routing is code** — a deterministic `before_model_callback` sends check-vs-report without
   an LLM call (`floodping/guardrails.py: flood_router_guard`).
+- **Fusion is code** — `get_flood_status` fuses citizen reports with a live rain signal
+  (Google Weather → Open-Meteo failover) into a **dynamic freshness window**: a report goes
+  stale in **20 min when raining** vs **90 min when dry** (`floodping/weather.py`).
 - **Safety is code** — a `freshness_guard` (`after_model_callback`) refuses to call a road
-  "passable" unless a **recent** report backs it (`> 45 min` or none → "Unknown").
+  "passable" unless a *fresh* report backs it; stale (past the dynamic TTL) or none → "Unknown".
 
 ```
 FloodPingRouter (root)            before_model_callback = flood_router_guard
@@ -35,8 +38,12 @@ pip install pytest && PYTHONPATH=. pytest -q
 cp .env.example .env && $EDITOR .env      # set GOOGLE_API_KEY
 
 # 2. local, in Docker
+#    .env may also hold GOOGLE_WEATHER_API_KEY (Google Weather); without it, Open-Meteo (no key).
 docker build -t floodping .
 docker run --rm -p 8080:8080 --env-file .env floodping
+
+#    stage knob: force rain to demo the freshness flip (no waiting on real weather)
+docker run --rm -p 8080:8080 --env-file .env -e FLOODPING_DEMO_RAIN_MM=5 floodping
 
 # 3. ask it
 curl -s localhost:8080/chat -H 'content-type: application/json' \
@@ -48,9 +55,13 @@ curl -s localhost:8080/chat -H 'content-type: application/json' \
 ## Deploy to Cloud Run
 
 ```bash
-# key is injected at runtime — never in git, never in the image
+# secrets via Secret Manager — plaintext never touches git, the image, or a deploy flag
+printf '%s' "$GEMINI_KEY"  | gcloud secrets create floodping-gemini  --data-file=-
+printf '%s' "$WEATHER_KEY" | gcloud secrets create floodping-weather --data-file=-
+
 gcloud run deploy floodping --source . --region us-central1 --allow-unauthenticated \
-  --set-env-vars "GOOGLE_API_KEY=$KEY,GOOGLE_GENAI_USE_VERTEXAI=false"
+  --set-secrets  "GOOGLE_API_KEY=floodping-gemini:latest,GOOGLE_WEATHER_API_KEY=floodping-weather:latest" \
+  --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=false"
 ```
 
 Tear down: `gcloud run services delete floodping --region us-central1`.

@@ -1,39 +1,47 @@
-"""Tools for FloodPing Lagos — see issue #1.
+"""Tools for FloodPing Lagos — see issue #1, #2.
 
-Read vs. write are deliberately separate tools, given to separate agents
-(CHECKLIST §4 least privilege): the checker can only read; only the reporter can write.
+Read vs. write are separate tools, given to separate agents (CHECKLIST §4 least privilege).
+`get_flood_status` fuses citizen reports + a live rain signal into a dynamic freshness
+window — the FUSION is code, not the LLM.
 """
 from __future__ import annotations
 
 from google.adk.tools import ToolContext
 
 from floodping import data
+from floodping.weather import effective_ttl_minutes, get_rain_signal
 
 
 def get_flood_status(location: str, tool_context: ToolContext) -> dict:
-    """Read-only: latest citizen flood reports for a Lagos location/route.
+    """Read-only: latest citizen flood reports for a Lagos location/route, fused with rain.
 
-    Pass a NORMALIZED location (e.g. "Orchid Road, Lekki"). Returns recent reports,
-    the age of the newest one, whether it is fresh, and the official warning.
-
-    Also stashes freshness into session state so the freshness guardrail can enforce
-    safety even if the model ignores instructions (CHECKLIST §5 guardrails-as-code).
+    Pass a NORMALIZED location (e.g. "Orchid Road, Lekki"). Freshness is dynamic: a report
+    is only "fresh" within a window that SHRINKS when it's raining. Stashes the verdict into
+    session state so the freshness guardrail can enforce safety even if the model disobeys
+    (CHECKLIST §5 guardrails-as-code).
     """
     reports = data.get_reports(location)
-    newest_age = min((r["minutes_ago"] for r in reports), default=None)
-    is_fresh = newest_age is not None and newest_age <= data.FRESHNESS_TTL_MINUTES
+    rain = get_rain_signal(location)
+    ttl = effective_ttl_minutes(rain["rain_mm"])
 
-    # Stash for the after_model freshness guard (mirrors Dockie's price_guard reading state).
+    newest_age = min((r["minutes_ago"] for r in reports), default=None)
+    is_fresh = newest_age is not None and newest_age <= ttl
+
     tool_context.state["temp:flood_location"] = location
     tool_context.state["temp:flood_newest_age_min"] = newest_age
     tool_context.state["temp:flood_has_fresh"] = is_fresh
+    tool_context.state["temp:flood_rain_mm"] = rain["rain_mm"]
+    tool_context.state["temp:flood_is_raining"] = rain["is_raining"]
 
     return {
         "location": location,
         "reports": reports,
         "newest_report_age_minutes": newest_age,
         "is_fresh": is_fresh,
-        "freshness_ttl_minutes": data.FRESHNESS_TTL_MINUTES,
+        "effective_ttl_minutes": ttl,
+        "rain_mm": rain["rain_mm"],
+        "is_raining": rain["is_raining"],
+        "weather_source": rain["source"],
         "official_warning": data.OFFICIAL_WARNING,
     }
 

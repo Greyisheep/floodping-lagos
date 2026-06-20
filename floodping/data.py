@@ -1,18 +1,18 @@
-"""Stub data layer for FloodPing Lagos — see issue #1.
+"""Stub data layer for FloodPing Lagos — see issue #1, #2.
 
-In production this is a Postgres/PostGIS query over citizen reports + a NiMet/NEMA
-bulletin feed (CHECKLIST §3 State/freshness, §7 Scalability). For the workshop demo the
-data is stubbed so the *guardrail* is the star, not a live feed.
+In production this is a Postgres/PostGIS query over citizen reports + geocoding
+(CHECKLIST §3 freshness, §7 scalability). For the workshop the data is stubbed so the
+*guardrail* and the *fusion logic* are the stars, not a live feed.
 
-Report ages are stored as explicit `minutes_ago` so behaviour is deterministic and
-testable without a wall clock.
+Report ages are explicit `minutes_ago` so behaviour is deterministic and testable.
 """
 from __future__ import annotations
 
 # Controlled vocabulary for severity (CHECKLIST §4 — write tools validate inputs).
 SEVERITY_LEVELS = ("passable", "ankle-level", "car-risk", "road-blocked")
 
-# A report is only trustworthy if it is recent. This is the freshness TTL (CHECKLIST §3).
+# Default freshness TTL used only when weather is unknown. The live TTL is dynamic and
+# computed from the rain signal (see floodping/weather.py: effective_ttl_minutes).
 FRESHNESS_TTL_MINUTES = 45
 
 # Official, citable warning (NiMet, June 2026). Always shown alongside citizen data.
@@ -22,20 +22,35 @@ OFFICIAL_WARNING = (
 )
 
 # Seed reports keyed by normalized location.
-#   - "orchid road, lekki": FRESH + passable        -> check returns passable
-#   - "admiralty road, lekki": FRESH + car-risk      -> check returns car-risk
-#   - "lekki-epe expressway": FRESH + road-blocked   -> check returns blocked
-#   - "ikorodu road": ONLY a STALE passable report   -> guardrail must refuse "passable"
+#   - "orchid road, lekki":      FRESH passable (8m)
+#   - "admiralty road, lekki":   FRESH car-risk (12m)
+#   - "lekki-epe expressway":    FRESH road-blocked (30m)
+#   - "ozumba mbadiwe, ...":     passable @ 35m  -> FRESH when dry (TTL 90), STALE in rain (TTL 20)
+#                                 => the "rain flip" demo: guard fires only when raining
+#   - "ikorodu road":            passable @ 190m -> always stale -> guard refuses "passable"
 _SEED_REPORTS: dict[str, list[dict]] = {
     "orchid road, lekki": [{"severity": "passable", "minutes_ago": 8, "source": "citizen"}],
     "admiralty road, lekki": [{"severity": "car-risk", "minutes_ago": 12, "source": "citizen"}],
     "lekki-epe expressway": [{"severity": "road-blocked", "minutes_ago": 30, "source": "citizen"}],
+    "ozumba mbadiwe, victoria island": [
+        {"severity": "passable", "minutes_ago": 35, "source": "citizen"}
+    ],
     "ikorodu road": [{"severity": "passable", "minutes_ago": 190, "source": "citizen"}],
 }
 
-# Mutable in-memory store seeded from the constants above (submit_report appends here).
-# NOTE: per-instance memory is fine for the demo but is NOT the source of truth — see
-# CHECKLIST §7 (stateless instances) before scaling this beyond one container.
+# Approx lat/lon per seeded area (prod: Google Geocoding, like Dockie). Default = Lagos.
+LOCATION_COORDS: dict[str, tuple[float, float]] = {
+    "orchid road, lekki": (6.4419, 3.5430),
+    "admiralty road, lekki": (6.4431, 3.4780),
+    "lekki-epe expressway": (6.4660, 3.5680),
+    "ozumba mbadiwe, victoria island": (6.4281, 3.4219),
+    "ikorodu road": (6.5790, 3.3680),
+}
+DEFAULT_COORDS = (6.4541, 3.3947)  # Lagos
+
+# Mutable in-memory store seeded from the constants (submit_report appends here).
+# NOTE: per-instance memory is fine for the demo but is NOT the source of truth —
+# see CHECKLIST §7 (stateless instances) before scaling beyond one container.
 _REPORTS: dict[str, list[dict]] = {k: list(v) for k, v in _SEED_REPORTS.items()}
 
 
@@ -67,6 +82,13 @@ def _resolve_key(location: str) -> str | None:
 def get_reports(location: str) -> list[dict]:
     key = _resolve_key(location)
     return _REPORTS.get(key, []) if key else []
+
+
+def get_coords(location: str) -> tuple[float, float]:
+    key = _resolve_key(location)
+    if key and key in LOCATION_COORDS:
+        return LOCATION_COORDS[key]
+    return DEFAULT_COORDS
 
 
 def add_report(location: str, severity: str) -> dict:
