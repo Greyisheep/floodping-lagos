@@ -1,0 +1,15 @@
+# Secrets — NEVER commit. The model API key is injected at runtime (see README).
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
