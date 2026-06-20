@@ -1,27 +1,64 @@
-"""FloodPing Lagos HTTP server — see issue #1.
+"""FloodPing Lagos HTTP server — see issue #1, #4.
 
-A thin FastAPI wrapper over the ADK Runner so the agent is one `curl` away — locally
-in Docker and on Cloud Run. Health check at /healthz (CHECKLIST §11).
+Thin FastAPI wrapper over the ADK Runner:
+- GET  /         -> a clean chat UI (one file, no build step)
+- GET  /health   -> health check (CHECKLIST §11)
+- POST /chat     -> talk to the agent
+
+Session backend is swappable (CHECKLIST §7): set DATABASE_URL to go stateless
+(DatabaseSessionService), else in-memory for the demo.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+try:  # graceful handling of transient model errors (CHECKLIST §6)
+    from google.genai.errors import ServerError
+except Exception:  # pragma: no cover
+    class ServerError(Exception):
+        ...
+
 from floodping.agent import root_agent
 
 APP_NAME = "floodping"
 
-# InMemorySessionService is per-instance — fine for the demo, NOT for horizontal scale.
-# Swap for a DatabaseSessionService to make instances stateless (CHECKLIST §7).
-_session_service = InMemorySessionService()
+
+def _async_db_url(url: str) -> str:
+    """ADK's DatabaseSessionService uses async SQLAlchemy — upgrade common URLs to async drivers
+    so a naive `sqlite:///x.db` or `postgresql://...` just works."""
+    for prefix, repl in (
+        ("sqlite:///", "sqlite+aiosqlite:///"),
+        ("postgresql://", "postgresql+asyncpg://"),
+        ("postgres://", "postgresql+asyncpg://"),
+    ):
+        if url.startswith(prefix):
+            return url.replace(prefix, repl, 1)
+    return url
+
+
+def _make_session_service():
+    """InMemory for the demo; DatabaseSessionService when DATABASE_URL is set →
+    stateless instances → horizontal scale on Cloud Run. The 'demo → production' one-liner."""
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        from google.adk.sessions import DatabaseSessionService
+
+        return DatabaseSessionService(db_url=_async_db_url(db_url))
+    return InMemorySessionService()
+
+
+_session_service = _make_session_service()
 _runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=_session_service)
 
-app = FastAPI(title="FloodPing Lagos", version="0.1.0")
+app = FastAPI(title="FloodPing Lagos", version="0.2.0")
 
 
 class ChatIn(BaseModel):
@@ -30,14 +67,14 @@ class ChatIn(BaseModel):
     session_id: str = "demo"
 
 
-@app.get("/healthz")
-def healthz() -> dict:
-    return {"ok": True, "service": APP_NAME}
+@app.get("/health")
+def health() -> dict:
+    backend = type(_session_service).__name__
+    return {"ok": True, "service": APP_NAME, "session_backend": backend}
 
 
 @app.post("/chat")
 async def chat(body: ChatIn) -> dict:
-    # get-or-create the session
     session = await _session_service.get_session(
         app_name=APP_NAME, user_id=body.user_id, session_id=body.session_id
     )
@@ -49,12 +86,77 @@ async def chat(body: ChatIn) -> dict:
     new_message = types.Content(role="user", parts=[types.Part(text=body.message)])
 
     final_text = None
-    async for event in _runner.run_async(
-        user_id=body.user_id, session_id=body.session_id, new_message=new_message
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            final_text = "".join(
-                p.text for p in event.content.parts if getattr(p, "text", None)
-            ).strip()
+    try:
+        async for event in _runner.run_async(
+            user_id=body.user_id, session_id=body.session_id, new_message=new_message
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                final_text = "".join(
+                    p.text for p in event.content.parts if getattr(p, "text", None)
+                ).strip()
+    except ServerError:
+        return {"response": "The model is busy right now — please try again in a few seconds."}
 
     return {"response": final_text or "(no text response)"}
+
+
+@app.get("/", response_class=HTMLResponse)
+def home() -> str:
+    return _UI
+
+
+_UI = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FloodPing Lagos</title>
+<style>
+  :root { --blue:#1a73e8; --ink:#202124; --bg:#f6f8fc; --bot:#eef3fe; --warn:#b3261e; }
+  * { box-sizing:border-box; } body { margin:0; font:16px/1.5 system-ui,Segoe UI,Roboto,sans-serif;
+    color:var(--ink); background:var(--bg); display:flex; justify-content:center; }
+  .wrap { width:100%; max-width:640px; min-height:100dvh; display:flex; flex-direction:column; }
+  header { padding:16px 18px; background:#fff; border-bottom:1px solid #e3e6ea; }
+  header h1 { margin:0; font-size:18px; } header p { margin:2px 0 0; color:#5f6368; font-size:13px; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { padding:10px 13px; border-radius:14px; max-width:86%; white-space:pre-wrap; }
+  .me { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .bot { align-self:flex-start; background:var(--bot); border-bottom-left-radius:4px; }
+  .bot.warn { background:#fce8e6; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 8px; }
+  .chip { font-size:13px; padding:6px 10px; border:1px solid #d2d6db; border-radius:999px;
+    background:#fff; cursor:pointer; } .chip:hover { border-color:var(--blue); color:var(--blue); }
+  form { display:flex; gap:8px; padding:12px 16px; background:#fff; border-top:1px solid #e3e6ea; }
+  input { flex:1; padding:11px 13px; border:1px solid #d2d6db; border-radius:999px; font-size:15px; }
+  button { padding:11px 18px; border:0; border-radius:999px; background:var(--blue); color:#fff;
+    font-size:15px; cursor:pointer; } button:disabled { opacity:.5; }
+</style></head><body><div class="wrap">
+  <header><h1>🌧️ FloodPing Lagos</h1><p>Ask if a route is flooded — or report flooding. Demo on Google ADK 2.2.</p></header>
+  <div id="log"></div>
+  <div class="chips">
+    <span class="chip" onclick="ask(this.textContent)">Is Orchid Road flooded?</span>
+    <span class="chip" onclick="ask(this.textContent)">Can I pass Ikorodu Road?</span>
+    <span class="chip" onclick="ask(this.textContent)">Report flooding at Admiralty Road, car-risk</span>
+  </div>
+  <form id="f" onsubmit="return send(event)">
+    <input id="m" autocomplete="off" placeholder="e.g. can I pass chevron to VGC?" />
+    <button id="b">Send</button>
+  </form>
+</div>
+<script>
+  const log = document.getElementById('log'), inp = document.getElementById('m'), btn = document.getElementById('b');
+  const sid = 'web-' + Math.random().toString(36).slice(2);
+  function add(text, who) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + who + (who==='bot' && /unknown|do not assume/i.test(text) ? ' warn' : '');
+    d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
+  }
+  function ask(t){ inp.value = t; send(new Event('x')); }
+  async function send(e){ e.preventDefault(); const text = inp.value.trim(); if(!text) return false;
+    add(text,'me'); inp.value=''; btn.disabled=true; const wait = add('…','bot');
+    try {
+      const r = await fetch('/chat',{method:'POST',headers:{'content-type':'application/json'},
+        body: JSON.stringify({message:text, session_id:sid})});
+      const j = await r.json(); wait.remove(); add(j.response || '(no response)','bot');
+    } catch(err){ wait.remove(); add('Network error — try again.','bot'); }
+    btn.disabled=false; inp.focus(); return false;
+  }
+</script></body></html>"""

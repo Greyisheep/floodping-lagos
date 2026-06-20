@@ -123,9 +123,11 @@ _PASSABLE_RE = re.compile(
 )
 
 
-def should_block_passable(response_text: str, has_fresh_report: bool) -> bool:
-    """True if the model claims 'passable/clear' but there is NO fresh report. Pure + testable."""
-    if has_fresh_report:
+def should_block_passable(response_text: str, authoritative_verdict: str) -> bool:
+    """True if the model claims 'passable/clear' but the code-computed verdict is NOT 'passable'.
+    The verdict (a field, computed in the tool) is the authority; we only detect the model's claim.
+    Pure + testable."""
+    if authoritative_verdict == "passable":
         return False
     return bool(_PASSABLE_RE.search(response_text or ""))
 
@@ -154,9 +156,9 @@ def freshness_guard(callback_context: Any, llm_response: Any) -> Optional[Any]:
     """
     try:
         state = callback_context.state
-        has_fresh = bool(state.get("temp:flood_has_fresh", False))
+        verdict = state.get("temp:flood_verdict", "unknown")
         text = _extract_text(llm_response)
-        if not text or not should_block_passable(text, has_fresh):
+        if not text or not should_block_passable(text, verdict):
             return None
 
         location = state.get("temp:flood_location") or "that route"

@@ -45,6 +45,11 @@ docker run --rm -p 8080:8080 --env-file .env floodping
 #    stage knob: force rain to demo the freshness flip (no waiting on real weather)
 docker run --rm -p 8080:8080 --env-file .env -e FLOODPING_DEMO_RAIN_MM=5 floodping
 
+#    then talk to it:
+#      browser UI:            http://localhost:8080/
+#      built-in ADK CLI/UI:   adk run floodping   |   adk web
+#      stateless sessions:    add  -e DATABASE_URL=sqlite:///./floodping.db   (/health shows the backend)
+
 # 3. ask it
 curl -s localhost:8080/chat -H 'content-type: application/json' \
   -d '{"message":"Is Orchid Road flooded?"}'                 # fresh report -> passable

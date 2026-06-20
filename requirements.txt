@@ -1,5 +1,6 @@
 # Pinned to match Dockie's validated ADK 2.2 stack — see issue #1.
-google-adk==2.2.0
+# [db] pulls SQLAlchemy so DatabaseSessionService works (stateless sessions, issue #4).
+google-adk[db]==2.2.0
 google-genai>=2.4,<3
 fastapi>=0.133,<1
 uvicorn>=0.35

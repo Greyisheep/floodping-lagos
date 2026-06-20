@@ -18,16 +18,16 @@ def test_router_defers_when_ambiguous():
     assert classify_intent("") is None
 
 
-def test_freshness_blocks_passable_without_fresh_report():
-    # Model says clear, but no fresh report -> must block.
-    assert should_block_passable("Orchid Road looks passable, you can pass.", has_fresh_report=False)
-    assert should_block_passable("The road is clear and safe to drive.", has_fresh_report=False)
+def test_guard_blocks_passable_when_verdict_not_passable():
+    # Model says clear, but the code verdict is not 'passable' -> must block.
+    assert should_block_passable("Orchid Road looks passable, you can pass.", "unknown")
+    assert should_block_passable("The road is clear and safe to drive.", "caution")
 
 
-def test_freshness_allows_passable_with_fresh_report():
-    assert not should_block_passable("Orchid Road is passable.", has_fresh_report=True)
+def test_guard_allows_passable_when_verdict_passable():
+    assert not should_block_passable("Orchid Road is passable.", "passable")
 
 
-def test_freshness_ignores_non_passable_text():
-    # A 'road-blocked' answer is never blocked by the freshness guard.
-    assert not should_block_passable("Lekki-Epe is road-blocked, avoid it.", has_fresh_report=False)
+def test_guard_ignores_non_passable_text():
+    # A 'blocked' answer never trips the guard.
+    assert not should_block_passable("Lekki-Epe is road-blocked, avoid it.", "blocked")
