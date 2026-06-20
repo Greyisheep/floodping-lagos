@@ -31,6 +31,29 @@ from floodping.agent import root_agent
 APP_NAME = "floodping"
 
 
+def _setup_tracing() -> None:
+    """OpenTelemetry -> Cloud Trace (CHECKLIST §8). Activated by OTEL_TO_CLOUD=1; ADK emits
+    spans on the global provider, so agent/tool steps show up in Cloud Trace. Never breaks startup."""
+    if os.environ.get("OTEL_TO_CLOUD") != "1":
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        provider = TracerProvider(resource=Resource.create({"service.name": APP_NAME}))
+        provider.add_span_processor(BatchSpanProcessor(CloudTraceSpanExporter()))
+        trace.set_tracer_provider(provider)
+        print("OTel -> Cloud Trace enabled")
+    except Exception as exc:  # pragma: no cover - tracing must never break the service
+        print("OTel tracing disabled:", exc)
+
+
+_setup_tracing()
+
+
 def _async_db_url(url: str) -> str:
     """ADK's DatabaseSessionService uses async SQLAlchemy — upgrade common URLs to async drivers
     so a naive `sqlite:///x.db` or `postgresql://...` just works."""
